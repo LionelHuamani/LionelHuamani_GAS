@@ -1,0 +1,714 @@
+// google sheet del formulario
+const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("RESPUESTAS");
+// la plantilla 
+
+const ID_SHEET = "1_aQ0kNoEotFBbGPRdonQDx7JmYD-FawsFitxhkWGm44";
+const ID_FOLDER_COPIAS_VG = "1dLvrvSk7Npbnn8JYEQ3Q5sLPT2vOZmYf";
+const ID_FOLDER_COPIAS_PROSIP = "1C0OzRB2DnkDW8-f_Rqh_Zrt7gMiak5jv";
+const ID_FOLDER_PDF_VG = "1BO0YJJanpk2RSGPimQLRWCE9_MoMLEuW";
+const ID_FOLDER_PDF_PROSIP = "15pkp7VR2QWDwui0Et_73cuAigyKV7Kkn";
+
+
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  const menu = ui.createMenu('Menu principal')
+  menu.addItem('ACEPTAR', 'aprobarFila');
+  menu.addItem('RECHAZAR', 'rechazarFila');
+  menu.addItem('LISTAR PENDIENTES', 'listarPendientes');
+  menu.addToUi();
+}
+
+function aprobarFila() {
+  var ui = SpreadsheetApp.getUi();
+  var result = ui.prompt(
+    'Obtener Fila',
+    'Ingrese el número de fila',
+    ui.ButtonSet.OK_CANCEL);
+  const button = result.getSelectedButton();
+  const text = result.getResponseText();
+  const validacionAceptada = 'APROBADO';
+
+  if (button == ui.Button.OK) {
+    const row = parseInt(text);
+    if (!isNaN(row) && row > 1) {
+      const estado = sheet.getRange(row, 148).getValue();
+      if (estado != 'APROBADO' && estado !== 'RECHAZADO') {
+        crearCorrelativo(row);
+        datosLiquidacion(row, validacionAceptada);
+      } else {
+        ui.alert('La fila ya esta procesada')
+      }
+    } else {
+      ui.alert('Ingrese un número mayor a uno')
+    }
+  }
+}
+
+function rechazarFila() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("RESPUESTAS");
+  var ui = SpreadsheetApp.getUi();
+  var resultadoFila = ui.prompt(
+    'Obtener Fila',
+    'Ingrese el número de fila que se va a rechazar',
+    ui.ButtonSet.OK_CANCEL);
+  const buttonFila = resultadoFila.getSelectedButton();
+  const textFila = resultadoFila.getResponseText();
+  const validacionRechazada = 'RECHAZADO';
+  if (buttonFila == ui.Button.OK) {
+    const row = parseInt(textFila);
+    if (!isNaN(row) && row > 1) {
+      const estado = sheet.getRange(row, 148).getValue();
+      if (estado != 'APROBADO' && estado !== 'RECHAZADO') {
+        var resultMotivo = ui.prompt(
+          'Motivo del Rechazo',
+          'Ingrese el motivo del rechazo de la fila N° ' + row,
+          ui.ButtonSet.OK_CANCEL
+        );
+        const buttonMotivo = resultMotivo.getSelectedButton();
+        const motivo = resultMotivo.getResponseText();
+
+        if (buttonMotivo == ui.Button.OK) {
+          recahzarSolicitud(row, motivo, validacionRechazada)
+        }
+      } else {
+        ui.alert('La fila ya esta proceada , no se podra modificar.')
+      }
+    } else {
+      ui.alert('Ingrese un numero mayor a uno')
+    }
+  }
+}
+
+function listarPendientes() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("RESPUESTAS");
+  var lastRow = sheet.getLastRow();
+  var pendiente = []
+
+  for (var row = 2; row <= lastRow; row++) {
+    const estado = sheet.getRange(row, 148).getValue();
+    if (estado === 'PENDIENTE') {
+      pendiente.push(`FILA ${row}`)
+    }
+  }
+  const ui = SpreadsheetApp.getUi();
+  ui.alert('Filas pendientes:\n' + pendiente.join('\n'));
+}
+
+function onFormSubmit(e) {
+  const sheet = e.range.getSheet();
+  if (sheet.getName() === "RESPUESTAS" ) {
+    const row = e.range.getRow();
+    if (row > 1) {
+      sheet.getRange(row, 148).setValue('PENDIENTE').setBackground("yellow");
+      Logger.log('Estado pendiente')
+    }
+  }
+}
+
+function obtenerIdUrl(url) {
+  var regex = /[-\w]{25,}/;
+  var match = url.match(regex);
+  return match ? match[0] : null;
+}
+
+//   Funcionalidad Correlativo
+function crearCorrelativo(row) {
+  var year = new Date().getFullYear();
+  var correlativo = Utilities.formatString("%05d", row - 1);
+  var correlativoConcatenado = `N° ${correlativo} - ${year}`
+  sheet.getRange(row, 147).setValue(correlativoConcatenado)
+}
+
+function datosLiquidacion(row, validacionAceptada) {
+
+  // DECLARACIÓN DE VARIABLES
+  sheet.getRange(row, 148).setValue(validacionAceptada).setBackground("green")
+
+  var marcaTemporal = Utilities.formatDate(sheet.getRange(row, 1).getValue(), 'GMT', 'dd-MM-yyyy')
+  var correo = sheet.getRange(row, 2).getValue();
+  var fechaImporte = sheet.getRange(row, 3).getValue();
+  var nombre = sheet.getRange(row, 4).getValue();
+  var apellidoP = sheet.getRange(row, 5).getValue();
+  var apellidoM = sheet.getRange(row, 6).getValue();
+  var nombreSolicitante = nombre + " " + apellidoP + " " + apellidoM;
+  var dni = sheet.getRange(row, 7).getValue();
+
+  var firmaSolicitanteLink = sheet.getRange(row, 8).getValue();
+  var idFirmaSolicitanteLink = obtenerIdUrl(firmaSolicitanteLink)
+
+  var empresa = sheet.getRange(row, 9).getValue();
+  var rucProsip = sheet.getRange(row, 10).getValue();
+  var rucVG = sheet.getRange(row, 12).getValue();
+  var areaProsip = sheet.getRange(row, 11).getValue();
+  var areaVg = sheet.getRange(row, 13).getValue();
+   
+  // codigos de areas 
+  if (areaVg != "") {
+    var hojaVG = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("CC_VG");
+    var datosVG = hojaVG.getRange("A3:B27").getValues();
+    var centroCostosVG = {} // objeto
+    for (var i = 0; i < datosVG.length; i++) {
+      var codigoVG = datosVG[i][0];
+      var nombreVG = datosVG[i][1];
+      centroCostosVG[codigoVG] = nombreVG;
+    }
+    var obtenidoCentroVG = centroCostosVG[areaVg];
+  } else if (areaProsip != "") {
+    var hojaPRO = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("CC_PROSIP");
+    var datosPRO = hojaPRO.getRange("A3:C46").getValues();
+    var centroCostosPRO = {}
+    for (var i = 0; i < datosPRO.length; i++) {
+      var codigoPRO = datosPRO[i][0];
+      var nombrePRO = datosPRO[i][1];
+      var descripcionPRO = datosPRO[i][2];
+      centroCostosPRO[codigoPRO] = { nombre: nombrePRO, descripcion: descripcionPRO };
+    }
+    var obtenidoCentroPRO = centroCostosPRO[areaProsip];
+  }
+
+  var areas = areaProsip + areaVg;
+  var ruc = rucVG + rucProsip;
+
+  var valeProvicional = sheet.getRange(row, 14).getValue();
+  var numeroOrden = sheet.getRange(row, 15).getValue();
+  var motivo = sheet.getRange(row, 16).getValue();
+  var montoSolicitado = sheet.getRange(row, 17).getValue();
+  var rendidoAnteior = sheet.getRange(row, 18).getValue();
+
+  // Items 1
+
+  var fechaGasto = sheet.getRange(row, 19).getValue();
+  var numeroComprobante = sheet.getRange(row, 20).getValue();
+  var razonSocial = sheet.getRange(row, 21).getValue();
+
+  var boletoViaje = sheet.getRange(row, 23).getValue();
+  var movilidad = sheet.getRange(row, 25).getValue();
+  var combustible = sheet.getRange(row, 27).getValue();
+  var alimentos = sheet.getRange(row, 29).getValue();
+  var hospedaje = sheet.getRange(row, 31).getValue();
+  var varios = sheet.getRange(row, 33).getValue();
+
+  // Items 2
+
+  var fechaGasto2 = sheet.getRange(row, 35).getValue();
+  var numeroComprobante2 = sheet.getRange(row, 36).getValue();
+  var razonSocial2 = sheet.getRange(row, 37).getValue();
+
+  var boletoViaje2 = sheet.getRange(row, 39).getValue();
+  var movilidad2 = sheet.getRange(row, 41).getValue();
+  var combustible2 = sheet.getRange(row, 43).getValue();
+  var alimentos2 = sheet.getRange(row, 45).getValue();
+  var hospedaje2 = sheet.getRange(row, 47).getValue();
+  var varios2 = sheet.getRange(row, 49).getValue();
+
+  // Items 3
+
+  var fechaGasto3 = sheet.getRange(row, 51).getValue();
+  var numeroComprobante3 = sheet.getRange(row, 52).getValue();
+  var razonSocial3 = sheet.getRange(row, 53).getValue();
+
+  var boletoViaje3 = sheet.getRange(row, 55).getValue();
+  var movilidad3 = sheet.getRange(row, 57).getValue();
+  var combustible3 = sheet.getRange(row, 59).getValue();
+  var alimentos3 = sheet.getRange(row, 61).getValue();
+  var hospedaje3 = sheet.getRange(row, 63).getValue();
+  var varios3 = sheet.getRange(row, 65).getValue();
+
+  // Items 4
+
+  var fechaGasto4 = sheet.getRange(row, 67).getValue();
+  var numeroComprobante4 = sheet.getRange(row, 68).getValue();
+  var razonSocial4 = sheet.getRange(row, 69).getValue();
+
+  var boletoViaje4 = sheet.getRange(row, 71).getValue();
+  var movilidad4 = sheet.getRange(row, 73).getValue();
+  var combustible4 = sheet.getRange(row, 75).getValue();
+  var alimentos4 = sheet.getRange(row, 77).getValue();
+  var hospedaje4 = sheet.getRange(row, 79).getValue();
+  var varios4 = sheet.getRange(row, 81).getValue();
+
+  // Items 5
+
+  var fechaGasto5 = sheet.getRange(row, 83).getValue();
+  var numeroComprobante5 = sheet.getRange(row, 84).getValue();
+  var razonSocial5 = sheet.getRange(row, 85).getValue();
+
+  var boletoViaje5 = sheet.getRange(row, 87).getValue();
+  var movilidad5 = sheet.getRange(row, 89).getValue();
+  var combustible5 = sheet.getRange(row, 91).getValue();
+  var alimentos5 = sheet.getRange(row, 93).getValue();
+  var hospedaje5 = sheet.getRange(row, 95).getValue();
+  var varios5 = sheet.getRange(row, 97).getValue();
+
+  // Items 6
+
+  var fechaGasto6 = sheet.getRange(row, 99).getValue();
+  var numeroComprobante6 = sheet.getRange(row, 100).getValue();
+  var razonSocial6 = sheet.getRange(row, 101).getValue();
+
+  var boletoViaje6 = sheet.getRange(row, 103).getValue();
+  var movilidad6 = sheet.getRange(row, 105).getValue();
+  var combustible6 = sheet.getRange(row, 107).getValue();
+  var alimentos6 = sheet.getRange(row, 109).getValue();
+  var hospedaje6 = sheet.getRange(row, 111).getValue();
+  var varios6 = sheet.getRange(row, 113).getValue();
+
+  // Items 7
+
+  var fechaGasto7 = sheet.getRange(row, 115).getValue();
+  var numeroComprobante7 = sheet.getRange(row, 116).getValue();
+  var razonSocial7 = sheet.getRange(row, 117).getValue();
+
+  var boletoViaje7 = sheet.getRange(row, 119).getValue();
+  var movilidad7 = sheet.getRange(row, 121).getValue();
+  var combustible7 = sheet.getRange(row, 123).getValue();
+  var alimentos7 = sheet.getRange(row, 125).getValue();
+  var hospedaje7 = sheet.getRange(row, 127).getValue();
+  var varios7 = sheet.getRange(row, 129).getValue();
+
+  // Items 8
+
+  var fechaGasto8 = sheet.getRange(row, 131).getValue();
+  var numeroComprobante8 = sheet.getRange(row, 132).getValue();
+  var razonSocial8 = sheet.getRange(row, 133).getValue();
+
+  var boletoViaje8 = sheet.getRange(row, 135).getValue();
+  var movilidad8 = sheet.getRange(row, 137).getValue();
+  var combustible8 = sheet.getRange(row, 139).getValue();
+  var alimentos8 = sheet.getRange(row, 141).getValue();
+  var hospedaje8 = sheet.getRange(row, 143).getValue();
+  var varios8 = sheet.getRange(row, 145).getValue();
+
+  var correlativo = sheet.getRange(row, 147).getValue();
+  var estado = sheet.getRange(row, 148).getValue();
+  // imprimimos las respuestas del solicitante.
+
+  console.log("Fecha, Marca Temporal: " + marcaTemporal)
+  console.log("Correo" + correo)
+  console.log("fecha de importe" + fechaImporte)
+  console.log("nombre del solicitante " + nombreSolicitante)
+  console.log("DNI del solicitante " + dni)
+  console.log("firma del solicitante " + firmaSolicitanteLink)
+
+  console.log("correlativo" + correlativo)
+  console.log("estado" + estado)
+
+  // Obtenemos los archivos y folder 
+
+  if (empresa == "IESTP") {
+
+    var archivoPlantilla = DriveApp.getFileById(ID_SHEET);
+    var carpetaDestino = DriveApp.getFolderById(ID_FOLDER_COPIAS_VG);
+    var plantillaCopia = archivoPlantilla.makeCopy(correlativo + " " + empresa, carpetaDestino);
+    // obtener el ID
+    var copiaId = plantillaCopia.getId();
+    // Abrir el google sheet
+    var sheetcopia = SpreadsheetApp.openById(copiaId);
+    var hojaActual = sheetcopia.getSheets()[0];
+
+  } else if (empresa == "PROSIP") {
+
+    var archivoPlantilla = DriveApp.getFileById(ID_SHEET);
+    var carpetaDestino = DriveApp.getFolderById(ID_FOLDER_COPIAS_PROSIP);
+    var plantillaCopia = archivoPlantilla.makeCopy(correlativo + " " + empresa, carpetaDestino);
+    // obtener el ID
+    var copiaId = plantillaCopia.getId();
+    // Abrir el google sheet
+    var sheetcopia = SpreadsheetApp.openById(copiaId);
+    var hojaActual = sheetcopia.getSheets()[0];
+
+  }
+  
+  // colocamos las variables en la plantilla
+  hojaActual.getRange("D14:E14").setValue(nombreSolicitante);
+  hojaActual.getRange("D15:E15").setValue(dni);
+  hojaActual.getRange("D16:E16").setValue(fechaImporte)
+  
+  // colocamos el area y descrpcion 
+  if (areaVg != "") {
+    hojaActual.getRange("L2:M2").setValue(obtenidoCentroVG)
+    hojaActual.getRange("L4:M5").setValue(obtenidoCentroVG)
+  } else if (areaProsip != "") {
+    hojaActual.getRange("L2:M2").setValue(obtenidoCentroPRO.nombre) // nombre
+    hojaActual.getRange("L4:M5").setValue(obtenidoCentroPRO.descripcion) // descripcion
+  }
+
+  hojaActual.getRange("L3:M3").setValue(areas);
+  hojaActual.getRange("F9").setValue(ruc);
+
+  hojaActual.getRange("B21:F30").setValue(motivo);
+  hojaActual.getRange("D17:E17").setValue(valeProvicional);
+  hojaActual.getRange("D18:E18").setValue(numeroOrden);
+  hojaActual.getRange("M26").setValue(montoSolicitado);
+  hojaActual.getRange("M27").setValue(rendidoAnteior);
+
+  // Items 1
+
+  hojaActual.getRange("B33").setValue(fechaGasto);
+  hojaActual.getRange("C33").setValue(numeroComprobante);
+  hojaActual.getRange("D33:E33").setValue(razonSocial);
+  hojaActual.getRange("F33").setValue(boletoViaje);
+  hojaActual.getRange("G33").setValue(movilidad);
+  hojaActual.getRange("H33").setValue(combustible);
+  hojaActual.getRange("I33:J33").setValue(alimentos);
+  hojaActual.getRange("K33").setValue(hospedaje);
+  hojaActual.getRange("L33").setValue(varios);
+
+  // Items 2
+
+  hojaActual.getRange("B34").setValue(fechaGasto2);
+  hojaActual.getRange("C34").setValue(numeroComprobante2);
+  hojaActual.getRange("D34:E34").setValue(razonSocial2);
+  hojaActual.getRange("F34").setValue(boletoViaje2);
+  hojaActual.getRange("G34").setValue(movilidad2);
+  hojaActual.getRange("H34").setValue(combustible2);
+  hojaActual.getRange("I34:J34").setValue(alimentos2);
+  hojaActual.getRange("K34").setValue(hospedaje2);
+  hojaActual.getRange("L34").setValue(varios2);
+
+  // Items 3
+  hojaActual.getRange("B35").setValue(fechaGasto3);
+  hojaActual.getRange("C35").setValue(numeroComprobante3);
+  hojaActual.getRange("D35:E35").setValue(razonSocial3);
+  hojaActual.getRange("F35").setValue(boletoViaje3);
+  hojaActual.getRange("G35").setValue(movilidad3);
+  hojaActual.getRange("H35").setValue(combustible3);
+  hojaActual.getRange("I35:J35").setValue(alimentos3);
+  hojaActual.getRange("K35").setValue(hospedaje3);
+  hojaActual.getRange("L35").setValue(varios3);
+
+  // Items 4
+
+  hojaActual.getRange("B36").setValue(fechaGasto4);
+  hojaActual.getRange("C36").setValue(numeroComprobante4);
+  hojaActual.getRange("D36:E36").setValue(razonSocial4);
+  hojaActual.getRange("F36").setValue(boletoViaje4);
+  hojaActual.getRange("G36").setValue(movilidad4);
+  hojaActual.getRange("H36").setValue(combustible4);
+  hojaActual.getRange("I36:J36").setValue(alimentos4);
+  hojaActual.getRange("K36").setValue(hospedaje4);
+  hojaActual.getRange("L36").setValue(varios4);
+
+  // Items 5
+
+  hojaActual.getRange("B37").setValue(fechaGasto5);
+  hojaActual.getRange("C37").setValue(numeroComprobante5);
+  hojaActual.getRange("D37:E37").setValue(razonSocial5);
+  hojaActual.getRange("F37").setValue(boletoViaje5);
+  hojaActual.getRange("G37").setValue(movilidad5);
+  hojaActual.getRange("H37").setValue(combustible5);
+  hojaActual.getRange("I37:J37").setValue(alimentos5);
+  hojaActual.getRange("K37").setValue(hospedaje5);
+  hojaActual.getRange("L37").setValue(varios5);
+
+  // Items 6
+
+  hojaActual.getRange("B38").setValue(fechaGasto6);
+  hojaActual.getRange("C38").setValue(numeroComprobante6);
+  hojaActual.getRange("D38:E38").setValue(razonSocial6);
+  hojaActual.getRange("F38").setValue(boletoViaje6);
+  hojaActual.getRange("G38").setValue(movilidad6);
+  hojaActual.getRange("H38").setValue(combustible6);
+  hojaActual.getRange("I38:J38").setValue(alimentos6);
+  hojaActual.getRange("K38").setValue(hospedaje6);
+  hojaActual.getRange("L38").setValue(varios6);
+
+  // Items 7
+
+  hojaActual.getRange("B39").setValue(fechaGasto7);
+  hojaActual.getRange("C39").setValue(numeroComprobante7);
+  hojaActual.getRange("D39:E39").setValue(razonSocial7);
+  hojaActual.getRange("F39").setValue(boletoViaje7);
+  hojaActual.getRange("G39").setValue(movilidad7);
+  hojaActual.getRange("H39").setValue(combustible7);
+  hojaActual.getRange("I39:J39").setValue(alimentos7);
+  hojaActual.getRange("K39").setValue(hospedaje7);
+  hojaActual.getRange("L39").setValue(varios7);
+
+  // Items 8
+
+  hojaActual.getRange("B40").setValue(fechaGasto8);
+  hojaActual.getRange("C40").setValue(numeroComprobante8);
+  hojaActual.getRange("D40:E40").setValue(razonSocial8);
+  hojaActual.getRange("F40").setValue(boletoViaje8);
+  hojaActual.getRange("G40").setValue(movilidad8);
+  hojaActual.getRange("H40").setValue(combustible8);
+  hojaActual.getRange("I40:J40").setValue(alimentos8);
+  hojaActual.getRange("K40").setValue(hospedaje8);
+  hojaActual.getRange("L40").setValue(varios8);
+
+  hojaActual.getRange("L12:M12").setValue(correlativo);
+  hojaActual.getRange("L14:M14").setValue(estado).setFontColor("#08B706");
+
+  // Generamos el qr e insetamos en la plantilla
+  var celdqr = "C74:D81";
+  var valoresGenerarQr = nombreSolicitante + " " + " Correlativo: " + correlativo;
+  var codigoGenerado = UrlFetchApp.fetch('https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(valoresGenerarQr))
+  var objetoImagen = codigoGenerado.getBlob();
+
+  var anchuraImagen = 35;
+  var alturaImagen = 0;
+  hojaActual.insertImage(objetoImagen, hojaActual.getRange(celdqr).getColumn(), hojaActual.getRange(celdqr).getRow(), anchuraImagen, alturaImagen);
+
+  // insertamos las imagenes de Prosip o VG.
+
+  if (empresa == "IESTP") {
+    var imagenVG = DriveApp.getFileById("1HarQFypiT8ddIBU4QaRuD3jve_4uRY3K");
+    var imagenBlob = imagenVG.getBlob();
+    var celdaDestino = hojaActual.getRange('B2'); // donde queremos insertar la imagen
+    var anchuraImagen = 50;
+    var alturaImagen = 0;
+    hojaActual.insertImage(imagenBlob, celdaDestino.getColumn(), celdaDestino.getRow(), anchuraImagen, alturaImagen);
+
+  } else if (empresa == "PROSIP") {
+    var imagenProsip = DriveApp.getFileById('1cAWus71pxYBKajWmGumcOsJDsQaUuTct');
+    var imagenBlob = imagenProsip.getBlob();
+    var celdaDestino = hojaActual.getRange('B2:C5'); // donde queremos insertar la imagen
+    hojaActual.insertImage(imagenBlob, celdaDestino.getColumn(), celdaDestino.getRow());
+  }
+
+  //  insertamos las firmas en la plantilla.
+
+  // Firma del solicitante
+  var imagensolicitante = DriveApp.getFileById(idFirmaSolicitanteLink);
+  var imagenBlob = imagensolicitante.getBlob();
+  var celdaDestino = hojaActual.getRange('G49:L57'); // donde queremos insertar la imagen
+  var anchuraImagen = 150;
+  var alturaImagen = 5;
+  hojaActual.insertImage(imagenBlob, celdaDestino.getColumn(), celdaDestino.getRow(), anchuraImagen, alturaImagen);
+
+  // Firma de las areas 
+  var imagenfirma = DriveApp.getFileById('1mVDKsa1KUOjMnzPAiUt7X7_wxtXoVps2');
+  var imagenBlob = imagenfirma.getBlob();
+  var celdaDestino = hojaActual.getRange('B49:D58'); // donde queremos insertar la imagen
+  var anchuraImagen = 100;
+  var alturaImagen = 0;
+  hojaActual.insertImage(imagenBlob, celdaDestino.getColumn(), celdaDestino.getRow(), anchuraImagen, alturaImagen);
+
+  var imagenfirma2 = DriveApp.getFileById('1Va5R4Fq5zCLasoexTyAzCJvIEtaRrxxH');
+  var imagenBlob = imagenfirma2.getBlob();
+  var celdaDestino = hojaActual.getRange('B61:D70'); // donde queremos insertar la imagen
+  var anchuraImagen = 10;
+  var alturaImagen = 0;
+  hojaActual.insertImage(imagenBlob, celdaDestino.getColumn(), celdaDestino.getRow(), anchuraImagen, alturaImagen);
+
+  var imagenfirma3 = DriveApp.getFileById('19vuo7VGcw_UbPsAJe5LAqFDaFSZ81pYd');
+  var imagenBlob = imagenfirma3.getBlob();
+  var celdaDestino = hojaActual.getRange('G73:L80'); // donde queremos insertar la imagen
+  var anchuraImagen = 100;
+  var alturaImagen = 0;
+  hojaActual.insertImage(imagenBlob, celdaDestino.getColumn(), celdaDestino.getRow(), anchuraImagen, alturaImagen);
+
+  var imagenfirma3 = DriveApp.getFileById('1iLufL56jle6QXVW8XSfepnw_b7kg3f2l');
+  var imagenBlob = imagenfirma3.getBlob();
+  var celdaDestino = hojaActual.getRange('G61:L70'); // donde queremos insertar la imagen
+  var anchuraImagen = 150;
+  var alturaImagen = 0;
+  hojaActual.insertImage(imagenBlob, celdaDestino.getColumn(), celdaDestino.getRow(), anchuraImagen, alturaImagen);
+
+
+  // convertimos en pdf y llamamos a una function para el envio de gmail.
+
+  if (empresa == "IESTP") {
+    var archivoPDF = DriveApp.getFileById(copiaId)
+    var conversionPDF = archivoPDF.getAs('application/pdf').setName(correlativo + " " + empresa)
+    // Guardar el archivo PDF en Google Drive
+    var carpetaPDF = DriveApp.getFolderById(ID_FOLDER_PDF_VG);
+    carpetaPDF.createFile(conversionPDF);
+    envioCorreoIESTP(correlativo, empresa, nombre, apellidoP, estado, correo, conversionPDF)
+
+  } else if (empresa == "PROSIP") {
+
+    var archivoPDF = DriveApp.getFileById(copiaId)
+    var conversionPDF = archivoPDF.getAs('application/pdf').setName(correlativo + " " + empresa)
+    // Guardar el archivo PDF en Google Drive
+    var carpetaPDF = DriveApp.getFolderById(ID_FOLDER_PDF_PROSIP);
+    carpetaPDF.createFile(conversionPDF);
+    envioCorreoPROSIP(correlativo, empresa, nombre, apellidoP, estado, correo, conversionPDF)
+    // Envía un correo electrónico con la confirmación y el PDF adjunto
+  }
+}
+
+function envioCorreoIESTP(correlativo, empresa, nombre, apellidoP, estado, correo, conversionPDF) {
+  // Envía un correo electrónico con la confirmación y el PDF adjunto
+  var subject = correlativo + " " + "Documento Automatización";
+  var htmlBody = `
+      <html>
+        <head>
+          <style>
+            .container {
+              font-family: Arial, sans-serif;
+              padding: 20px;
+              background-color: #f9f9f9;
+              border: 1px solid #ddd;
+              border-radius: 5px;
+            }
+            .header {
+              font-size: 24px;
+              font-weight: bold;
+              margin-bottom: 20px;
+              color: #333;
+            }
+            .content {
+              font-size: 16px;
+              color: #555;
+            }
+            .footer {
+              font-size: 14px;
+              color: #999;
+              margin-top: 20px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">Documento de Liquidación - ${empresa}</div>
+            <div class="content">
+              <p>Estimado/a ${nombre} ${apellidoP},</p>
+              <p>Su documento solicitado fue <span style="background-color:#e0e0e0;color:#00B51E;"><strong> ${estado}</strong></span>,</p>
+              <p>Adjunto encontrará el documento generado automáticamente con el correlativo ${correlativo}.</p>
+              <p>Saludos cordiales,</p>
+              <p>Equipo de Automatización</p>
+            </div>
+            <div class="footer">
+              <p>&copy; 2024 Equipo de Automatización. Todos los derechos reservados.</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+  MailApp.sendEmail({
+    to: correo + "," + "carlos.tomi.chanta@vallegrande.edu.pe" + "," + "lionel.huamani.levano@vallegrande.edu.pe",
+    subject: subject,
+    htmlBody: htmlBody,
+    attachments: [conversionPDF] // Adjunta el archivo PDF a enviar
+  });
+
+}
+
+function envioCorreoPROSIP(correlativo, empresa, nombre, apellidoP, estado, correo, conversionPDF) {
+
+  var subject = correlativo + " " + "Documento Automatización";
+  var htmlBody = `
+      <html>
+        <head>
+          <style>
+            .container {
+              font-family: Arial, sans-serif;
+              padding: 20px;
+              background-color: #f9f9f9;
+              border: 1px solid #ddd;
+              border-radius: 5px;
+            }
+            .header {
+              font-size: 24px;
+              font-weight: bold;
+              margin-bottom: 20px;
+              color: #333;
+            }
+            .content {
+              font-size: 16px;
+              color: #555;
+            }
+            .guy {
+              font-size: 16px;
+              color: #339966;
+            }
+            .footer {
+              font-size: 14px;
+              color: #999;
+              margin-top: 20px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">Documento de Liquidación - ${empresa}</div>
+            <div class="content">
+              <p>Estimado/a ${nombre} ${apellidoP},</p>
+              <p>Su documento solicitado fue <span style="background-color:#e0e0e0;color:#00B51E;"><strong> ${estado}</strong></span>,</p>
+              <p>Adjunto encontrará el documento generado automáticamente con el correlativo ${correlativo}.</p>
+              <p>Saludos cordiales,</p>
+              <p>Equipo de Automatización</p>
+            </div>
+            <div class="footer">
+              <p>&copy; 2024 Equipo de Automatización. Todos los derechos reservados.</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+  MailApp.sendEmail({
+    to: correo + "," + "carlos.tomi.chanta@vallegrande.edu.pe" + "," + "lionel.huamani.levano@vallegrande.edu.pe",
+    subject: subject,
+    htmlBody: htmlBody,
+    attachments: [conversionPDF] // Adjunta el archivo PDF a enviar
+  });
+}
+
+function recahzarSolicitud(row, motivo, validacionRechazada) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("RESPUESTAS");
+  sheet.getRange(row, 148).setValue(validacionRechazada).setBackground("red");
+
+  var correo = sheet.getRange(row, 2).getValue();
+  var nombre = sheet.getRange(row, 4).getValue();
+  var empresa = sheet.getRange(row, 9).getValue();
+  var subject = "INFORME DE SU LIQUIDACION - AUTOMATIZACIÓN";
+  var htmlBody = `
+      <html>
+        <head>
+          <style>
+            .container {
+              font-family: Arial, sans-serif;
+              padding: 20px;
+              background-color: #f9f9f9;
+              border: 1px solid #ddd;
+              border-radius: 5px;
+            }
+            .header {
+              font-size: 24px;
+              font-weight: bold;
+              margin-bottom: 20px;
+              color: #333;
+            }
+            .content {
+              font-size: 16px;
+              color: #555;
+            }
+            .guy {
+              font-size: 16px;
+              color: #339966;
+            }
+            .footer {
+              font-size: 14px;
+              color: #999;
+              margin-top: 20px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">Documento de Liquidación - ${empresa}</div>
+            <div class="content">
+              <p>Estimado/a ${nombre},</p>
+              <p>El documento solicitado fue <span style="background-color:#e0e0e0;color:#b71c1c;"><strong>${validacionRechazada}</strong></span>,</p>
+              <p>A continuación paso a detallar el motivo del rechazo:</p>
+              <li>${motivo}</li>
+              <p>Revise de nuevo y por favor corriga los detalles.</p>
+              <p>Saludos cordiales,</p>
+              <p>Equipo de Automatización</p>
+            </div>
+            <div class="footer">
+              <p>&copy; 2024 Equipo de Automatización. Todos los derechos reservados.</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+  MailApp.sendEmail({
+    to: correo + "," + "carlos.tomi.chanta@vallegrande.edu.pe" + "," + "lionel.huamani.levano@vallegrande.edu.pe",
+    subject: subject,
+    htmlBody: htmlBody,
+  })
+}
+// Terminamos el proocedimiento.
